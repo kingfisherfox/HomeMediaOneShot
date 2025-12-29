@@ -1,0 +1,380 @@
+version: "3.8"
+
+networks:
+  media_net:
+    name: media_net
+
+services:
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=${TZ}
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_SCHEDULE=${WATCHTOWER_SCHEDULE}
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+    restart: unless-stopped
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    profiles: ["vpn"]
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TZ=${TZ}
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
+      - VPN_TYPE=${VPN_TYPE}
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES}
+      - SERVER_CITIES=${SERVER_CITIES}
+      - SERVER_HOSTNAMES=${SERVER_HOSTNAMES}
+      - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNETS}
+      - FIREWALL_INPUT_PORTS=3000,9091,9696,8191
+    volumes:
+      - ${CONFIG_DIR}/gluetun:/gluetun
+    ports:
+      - "3000:3000"
+      - "9091:9091"
+      - "9696:9696"
+      - "8191:8191"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    container_name: transmission
+    profiles: ["vpn"]
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - TRANSMISSION_RPC_AUTHENTICATION_REQUIRED=true
+      - TRANSMISSION_RPC_USERNAME=${TRANSMISSION_RPC_USER}
+      - TRANSMISSION_RPC_PASSWORD=${TRANSMISSION_RPC_PASS}
+      - TRANSMISSION_DOWNLOAD_DIR=/downloads/complete
+      - TRANSMISSION_INCOMPLETE_DIR=/downloads/incomplete
+      - TRANSMISSION_INCOMPLETE_DIR_ENABLED=true
+      - TRANSMISSION_RATIO_LIMIT_ENABLED=true
+      - TRANSMISSION_RATIO_LIMIT=${TRANSMISSION_RATIO_LIMIT}
+    volumes:
+      - ${CONFIG_DIR}/transmission:/config
+      - ${DOWNLOADS_DIR}:/downloads
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    profiles: ["vpn"]
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/prowlarr:/config
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  flaresolverr:
+    image: flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    profiles: ["vpn"]
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  transmission_novpn:
+    image: lscr.io/linuxserver/transmission:latest
+    container_name: transmission
+    profiles: ["novpn"]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - TRANSMISSION_RPC_AUTHENTICATION_REQUIRED=true
+      - TRANSMISSION_RPC_USERNAME=${TRANSMISSION_RPC_USER}
+      - TRANSMISSION_RPC_PASSWORD=${TRANSMISSION_RPC_PASS}
+      - TRANSMISSION_DOWNLOAD_DIR=/downloads/complete
+      - TRANSMISSION_INCOMPLETE_DIR=/downloads/incomplete
+      - TRANSMISSION_INCOMPLETE_DIR_ENABLED=true
+      - TRANSMISSION_RATIO_LIMIT_ENABLED=true
+      - TRANSMISSION_RATIO_LIMIT=${TRANSMISSION_RATIO_LIMIT}
+    volumes:
+      - ${CONFIG_DIR}/transmission:/config
+      - ${DOWNLOADS_DIR}:/downloads
+    ports:
+      - "9091:9091"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  prowlarr_novpn:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    profiles: ["novpn"]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/prowlarr:/config
+    ports:
+      - "9696:9696"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  flaresolverr_novpn:
+    image: flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    profiles: ["novpn"]
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=info
+    ports:
+      - "8191:8191"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/sonarr:/config
+      - ${MEDIA_DIR}/tv:/tv
+      - ${DOWNLOADS_DIR}:/downloads
+    ports:
+      - "8989:8989"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/radarr:/config
+      - ${MEDIA_DIR}/movies:/movies
+      - ${DOWNLOADS_DIR}:/downloads
+    ports:
+      - "7878:7878"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/lidarr:/config
+      - ${MEDIA_DIR}/music:/music
+      - ${DOWNLOADS_DIR}:/downloads
+    ports:
+      - "8686:8686"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/bazarr:/config
+      - ${MEDIA_DIR}/movies:/movies
+      - ${MEDIA_DIR}/tv:/tv
+    ports:
+      - "6767:6767"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  overseerr:
+    image: lscr.io/linuxserver/overseerr:latest
+    container_name: overseerr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/overseerr:/config
+    ports:
+      - "5055:5055"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    profiles: ["plex"]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    volumes:
+      - ${CONFIG_DIR}/plex:/config
+      - ${MEDIA_DIR}:/media
+    ports:
+      - "32400:32400"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  plex_intel:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    profiles: ["plex_intel"]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM}
+    volumes:
+      - ${CONFIG_DIR}/plex:/config
+      - ${MEDIA_DIR}:/media
+    devices:
+      - /dev/dri:/dev/dri
+    ports:
+      - "32400:32400"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  plex_nvidia:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
+    profiles: ["plex_nvidia"]
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    volumes:
+      - ${CONFIG_DIR}/plex:/config
+      - ${MEDIA_DIR}:/media
+    runtime: nvidia
+    ports:
+      - "32400:32400"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  lazylibrarian:
+    image: lscr.io/linuxserver/lazylibrarian:latest
+    container_name: lazylibrarian
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/lazylibrarian:/config
+      - ${DOWNLOADS_DIR}:/downloads
+      - ${MEDIA_DIR}/books:/books
+      - ${MEDIA_DIR}/audiobooks:/audiobooks
+    ports:
+      - "5299:5299"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  maintainerr:
+    image: ghcr.io/jorenn92/maintainerr:latest
+    container_name: maintainerr
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_DIR}/maintainerr:/config
+    ports:
+      - "6246:6246"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ${STACK_DIR}/homepage/config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - media_net
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
