@@ -62,7 +62,14 @@ ensure_docker_group() {
 load_env() {
   [[ -f .env ]] || exit 1
   set -a
-  source .env
+  while IFS='=' read -r k v; do
+    [[ -z "${k}" ]] && continue
+    [[ "${k}" =~ ^[[:space:]]*# ]] && continue
+    k="$(echo "$k" | tr -d ' \t\r')"
+    v="$(echo "${v:-}" | tr -d '\r')"
+    [[ -z "$k" ]] && continue
+    export "${k}=${v}"
+  done < .env
   set +a
 }
 
